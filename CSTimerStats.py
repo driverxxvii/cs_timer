@@ -1,12 +1,11 @@
 import os
-import numpy as np
-import matplotlib.pyplot as plt
-import datetime
-import PySimpleGUI as sg
 import pathlib
-from collections import Counter
-from configparser import ConfigParser
+import datetime
+import pandas as pd
+import PySimpleGUI as sg
+import matplotlib.pyplot as plt
 from scipy.stats import norm
+from configparser import ConfigParser
 
 
 def locate_csv_file(window):
@@ -68,80 +67,78 @@ def check_if_integer(num):
         return False
 
 
+def time_to_seconds(solve_time):
+    """
+    converts a string of the form mm:ss.xx or ss.xx to seconds only
+    :param solve_time: a string of the form mm:ss.xx or ss.xx
+    :return: float seconds
+    """
+    seconds = 0
+    for i, t in enumerate(reversed(solve_time.split(":"))):
+        seconds = seconds + float(t) * 60 ** i
+
+    return seconds
+
+
 def read_file(file_path):
-    """
 
-    :return:
-    np_solve_times is a numpy array of the times in seconds
-    solve_dates_list is a list of dates
-    """
-    solve_times_list = []
-    solve_dates_list = []
+    df = pd.read_csv(file_path, )
+    df.columns = ["Header"]      # rename header
 
-    with open(file_path, "r") as f:
-        text = f.readlines()
+    # Split columns by ';' delimiter.
+    df[
+        ["solve_num",
+         "solve_time_with_info",
+         "comment",
+         "scramble",
+         "date",
+         "solve_time"]] = df["Header"].str.split(";", expand=True)
 
-    # text[0] is "No.;Time;Comment;Scramble;Date;P.1"
+    # drop unused columns
+    df.drop(["Header", "solve_time_with_info", "comment"], axis=1, inplace=True)
 
-    for line in text[1:]:  # start from second line, first line is header
-        seconds = 0
-        line = line.strip()  # remove new line tag \n
-        line_items = line.split(";")
-        # second and sixth column (element) are solve time but second column has DNF and +2 info
-        # so use sixth column. So, DNF and +2 are not taken in to account at present
-        solve_time = line_items[5]
-        # fifth element is solve date and time (when the solve was done) separated by space
-        solve_date = line_items[4]
-        solve_date = solve_date.split(" ")[0]  # split to store date
+    # Convert solve time from mm:ss.xx to ss.xx
+    df["solve_time"] = df["solve_time"].apply(time_to_seconds)
 
-        # Some of the times have the minute value, some don't
-        # e.g. 1:25.68, 54.57 etc
-        # split by the colon, then convert to seconds
-        for i, t in enumerate(reversed(solve_time.split(":"))):
-            seconds = seconds + float(t) * 60 ** i
+    # Convert date to datetime objects
+    df["date"] = pd.to_datetime(df["date"], )
+    df["date_only"] = df["date"].dt.date
+    df["date_only"] = pd.to_datetime((df["date_only"]))
 
-        solve_times_list.append(seconds)
-        solve_dates_list.append(solve_date)
+    # return df
 
-    np_solve_times = np.array(solve_times_list)
-    return np_solve_times, solve_dates_list
+    # return np_solve_times, solve_dates_list, df
+    return df
 
 
-def calculate_averages(np_times, gui_window):
-    best_time = np_times.min()
-    total_solves = np_times.size
-    last5 = np_times[-5:]  # reads last 5 times
-    last12 = np_times[-12:]
-    last100 = np_times[-100:]
-    last500 = np_times[-500:]
-    last1000 = np_times[-1000:]
-
+def calculate_averages(df, gui_window):
+    solve_times = df["solve_time"]
     # remove best and worst times from best of 5 and best of 12
-    last5 = np.delete(last5, [last5.argmin(), last5.argmax()])
-    last12 = np.delete(last12, [last12.argmin(), last12.argmax()])
+    # AO100 and AO500 is calculated by excluding the top/bottom 5 times
+    # AO1000 is calculated by excluding the top/bottom 10 times
 
-    last100 = np.sort(last100)  # AO100 is calculated by excluding the top/bottom 5 times
-    last100 = last100[5:95]
+    # Get relevant tail, then sort values and finally slice for required values.
+    solve_times_5 = solve_times.tail(5).sort_values().iloc[1:4]
+    solve_times_12 = solve_times.tail(12).sort_values().iloc[1:11]
+    solve_times_100 = solve_times.tail(100).sort_values().iloc[5:95]
+    solve_times_500 = solve_times.tail(500).sort_values().iloc[5:495]
+    solve_times_1000 = solve_times.tail(1000).sort_values().iloc[10:990]
 
-    last500 = np.sort(last500)  # calculate AO500 in same manner as AO100 above
-    last500 = last500[5:495]
+    best_time = solve_times.min()
+    total_solves = len(solve_times)
 
-    last1000 = np.sort(last1000)
-    last1000 = last1000[10:990]  # take out first and last 10 times
+    ao5, ao12, ao100, ao500, ao1000 = [round(solve_times_5.mean(), 2),
+                                       round(solve_times_12.mean(), 2),
+                                       round(solve_times_100.mean(), 2),
+                                       round(solve_times_500.mean(), 2),
+                                       round(solve_times_1000.mean(), 2)]
 
-    ao5 = round(last5.mean(), 2)
-    ao12 = round(last12.mean(), 2)
-    ao100 = round(last100.mean(), 2)
-    ao500 = round(last500.mean(), 2)
-    ao1000 = round(last1000.mean(), 2)
-    # ao_all = round(np_times.mean(), 2)
-
-    std5 = round(last5.std(ddof=1), 2)
-    std12 = round(last12.std(ddof=1), 2)
-    std100 = round(last100.std(ddof=1), 2)
-    std500 = round(last500.std(ddof=1), 2)
-    std1000 = round(last1000.std(ddof=1), 2)
-    # std_all = round(np_times.std(), 2)
+    std5, std12, std100, std500, std1000 = [round(solve_times_5.std(), 2),
+                                            round(solve_times_12.std(), 2),
+                                            round(solve_times_100.std(), 2),
+                                            round(solve_times_500.std(), 2),
+                                            round(solve_times_1000.std(), 2),
+                                            ]
 
     gui_window.Element("PB").update(f"Best time = {best_time} : Total Solves = {total_solves}")
     gui_window.FindElement("AO5").update(f"Average of 5      : {ao5} (sigma: {std5})")
@@ -151,119 +148,115 @@ def calculate_averages(np_times, gui_window):
     gui_window.FindElement("AO1000").update(f"Average of 1000: {ao1000} (sigma: {std1000})")
 
 
-def plot_graph(np_times):
-    # A way to calculate moving average!
-    # https://stackoverflow.com/questions/11352047
-    cumulative_sum = np.cumsum(np.insert(np_times, 0, 0))  # Inserts a zero at the start
+def plot_graph(df, n):
+    if n > len(df):
+        n = len(df)
+
+    solve_times = df["solve_time"].tail(n)
     width = 30  # Moving average interval size
-    moving_average = (cumulative_sum[width:] - cumulative_sum[:-width]) / width
-    x = np.arange(width - 1, np.size(np_times))  # plot moving averages starting at first value
-
-    # print(f"Total time - {time.clock() - start_time}")
-
-    # try these colors
-    # 237 125 50 ed7d32 orange
-    # 112 172 71 70ac47 green
-    # 91 154 213 5b9ad5 blue
-    # 253 191 0  fdbf00 yellow
 
     plt.figure(1)
-    plt.plot(np_times[:], linewidth=1, color="#70ac47")
-    plt.plot(x, moving_average, linewidth=2, color="#ed7d32")
+    rolling_mean = solve_times.rolling(window=width).mean()
+    plt.plot(solve_times, linewidth=1, color="#70ac47")
+    plt.plot(rolling_mean, linewidth=2, color="#ed7d32")
+
     plt.grid(True)
 
-    # step_size will be zero if num of solves is less than 39, so set to 1 in that case
-    step_size = max(int(len(moving_average) / 10), 1)
-    for i, value in enumerate(moving_average[::step_size]):
-        plt.annotate(int(value), xy=(29 + i * step_size, value), color="black")
+    # only show moving average if n > width
+    if n > width:
+        indices = solve_times.index.values.tolist()
+        moving_average = rolling_mean.values.tolist()
+        # step_size will be zero if num of solves is less than 39, so set to 1 in that case
+        step_size = max(int((len(indices) - width+1) / 10), 1)
+        for i, value in enumerate(moving_average[width::step_size]):
+            plt.annotate(int(value), xy=(indices[width + i * step_size], value))
+
+        plt.annotate(int(moving_average[-1]), xy=(indices[-1], moving_average[-1]))
 
     plt.show(block=False)
 
 
-def calculate_summary_stats_for_date(times, dates, tallied_dates):
-    """
-    This is used by calculate_solve_dates()
-    :param times: np array of all the times
-    :param dates: list of all dates including duplicates
-    :param tallied_dates: list of tuples of date and tally
-    :return:
-    """
-    message = ""
-    for date, count in tallied_dates:
-        # get indices of all dates that are equal to date
-        indices = [i for i, item in enumerate(dates) if item == date]
+def last_10_days(df, gui_window):
+    date_group = df.groupby(["date_only"])
+    dg_agg = date_group["solve_time"].agg(["count", "mean", "std", "min", "max"]).round(2)
+    dg_agg.sort_index(inplace=True, ascending=False)
+    dg_agg.reset_index(inplace=True)
 
-        # times are stored in corresponding index, get summary from numpy array
-        start, end = indices[0], indices[-1] + 1
-        mean = round(times[start:end].mean(), 2)
-        st_dev = round(times[start:end].std(ddof=1), 2)
-        best = round(times[start:end].min(), 2)
-        message = f"{message}" \
-                  f"{date} : Solves {count}, mean {mean} ({st_dev}), best {best}\n"
+    dg_agg.rename({"date_only": "Date",
+                   "count": "Solves",
+                   "mean": "Mean",
+                   "std": "st. dev",
+                   "min": "Best",
+                   "max": "Worst"},
+                  axis=1, inplace=True)
 
-    return message
-
-
-def calculate_solve_dates(times, dates, gui_window):
-    """
-    :param dates: a list of dates including duplicates
-    :param gui_window:
-    :param times: numpy array of all the solve times
-    :return:
-    """
-
-    c = Counter(dates)
-    dates_tally = list(c.items())  # dates_tally is a tuple of (date, tally count)
-    recent_dates = sorted(dates_tally[-10:], reverse=True)
-
-    message = calculate_summary_stats_for_date(times, dates, recent_dates)
+    dg_agg = dg_agg.head(10)
+    message = dg_agg.to_string(header=True, index=False)
     gui_window.Element("Last10Days").update(message)
 
-    most_solve_dates = sorted(dates_tally, key=lambda x: x[1], reverse=True)[:5]
 
-    message = calculate_summary_stats_for_date(times, dates, most_solve_dates)
+def top5days(df, gui_window):
+    date_group = df.groupby(["date_only"])
+    dg_agg = date_group["solve_time"].agg(["count", "mean", "std", "min", "max"]).round(2)
+    dg_agg_sorted = dg_agg.sort_values("count", ascending=False).head(5)
+    dg_agg_sorted.reset_index(inplace=True)
+
+    # df.rename({"Header": "Index"}, axis=1, inplace=True)
+    dg_agg_sorted.rename({"date_only": "Date",
+                          "count": "Solves",
+                          "mean": "Mean",
+                          "std": "st. dev",
+                          "min": "Best",
+                          "max": "Worst"},
+                         axis=1, inplace=True)
+    message = dg_agg_sorted.to_string(header=True, index=False)
     gui_window.FindElement("MostSolves").update(message)
 
 
-def last_n_days(times, dates, gui_window):
-    """
-    :param times: numpy array of all solve times
-    :param dates: list of all solve dates including duplicates
-    :param gui_window:
-    :return:
-    """
-    c = Counter(dates)
-    dates_tally = list(c.items())  # list of tuples of date and tally
-
-    days = [3, 5, 7, 10, 15, 30]
+def last_n_days(df, gui_window):
     message = ""
+    days = [3, 5, 7, 10, 15, 30]
+
+    data = {}
+    last, solves, means, st_devs, bests, worsts = [], [], [], [], [], []
 
     for n in days:
-        recent_tally = sorted(dates_tally[-n:], reverse=True)
-        total_count = 0
-        compare_to_date = datetime.date.today() + datetime.timedelta(days=-n)
-        for date, count in recent_tally:
-            date = datetime.datetime.strptime(date, "%Y-%m-%d").date()
-            if date > compare_to_date:
-                total_count += count
+        n_days_filter = df["date_only"] >= datetime.datetime.today() + datetime.timedelta(days=-n)
+        new_df = df.loc[n_days_filter, "solve_time"]
+        mean = round(new_df.mean(), 2)
+        st_dev = round(new_df.std(ddof=1), 2)
+        best = new_df.min()
+        # worst = new_df.nlargest(3).to_string(index=False, header=False)
+        # worst = worst.replace("\n", "")
+        worst = new_df.max()
+        total_count = len(new_df)
 
-        recent_times = times[-total_count:]
-        mean = round(recent_times.mean(), 2)
-        st_dev = round(recent_times.std(ddof=1), 2)
-        best = recent_times.min()
+        last.append(f"{n} days")
+        solves.append(total_count)
+        means.append(mean)
+        st_devs.append(st_dev)
+        bests.append(best)
+        worsts.append(worst)
 
-        new_message = f"Last {n} days: Solves {total_count}, mean {mean} ({st_dev}), " \
-                      f"best {best}\n"
-        message = f"{message}{new_message}"
+    data["Last"] = last
+    data["Solves"] = solves
+    data["Mean"] = means
+    data["st. dev"] = st_devs
+    data["Best"] = bests
+    data["Worst"] = worsts
 
+    summary_df = pd.DataFrame.from_dict(data)
+    message = summary_df.to_string(header=True, index=False)
     gui_window.FindElement("RecentSolveCount").update(message)
 
 
-def show_histogram(times):
-    mu = times.mean()
-    sigma = times.std(ddof=1)
-    plt.hist(times, bins=30, density=True, rwidth=0.9)
-    plt.plot(np.sort(times), norm.pdf(np.sort(times), mu, sigma))
+def show_histogram(df, n):
+    solve_times = df["solve_time"].tail(n)
+    mu = solve_times.mean()
+    sigma = solve_times.std()
+    solve_times.sort_values(inplace=True)
+    plt.hist(solve_times, bins=30, density=True, rwidth=0.9)
+    plt.plot(solve_times, norm.pdf(solve_times, mu, sigma), color="#ed7d32")
     plt.show(block=False)
 
 
@@ -350,10 +343,14 @@ def event_loop():
     window = gui_layout()
     window.read(10)
     csv_file = locate_csv_file(window)
-    solve_times, solve_dates = read_file(csv_file)
-    calculate_averages(solve_times, window)
-    calculate_solve_dates(solve_times, solve_dates, window)
-    last_n_days(solve_times, solve_dates, window)
+    df = read_file(csv_file)
+    calculate_averages(df, window)
+    last_n_days(df, window)
+    last_10_days(df, window)
+    top5days(df, window)
+
+    plt.tight_layout()
+    plt.style.use("seaborn")
 
     while True:
         event, values = window.read()
@@ -364,24 +361,25 @@ def event_loop():
         if event == "Refresh":
             write_config_info("settings", "csv_file_path", "")
             csv_file = locate_csv_file(window)
-            solve_times, solve_dates = read_file(csv_file)
-            calculate_averages(solve_times, window)
-            calculate_solve_dates(solve_times, solve_dates, window)
-            last_n_days(solve_times, solve_dates, window)
+            solve_times, solve_dates, df = read_file(csv_file)
+            calculate_averages(df, window)
+            last_n_days(df, window)
+            last_10_days(df, window)
+            top5days(df, window)
 
         if event == "graph":
             n = values["graph_n_points"]
             if check_if_integer(n):
                 n = int(values["graph_n_points"])
                 write_config_info("settings", "n", str(n))
-                plot_graph(solve_times[-n:])
+                plot_graph(df, n)
 
         if event == "histogram":
             n = values["graph_n_points"]
             if check_if_integer(n):
                 n = int(values["graph_n_points"])
                 write_config_info("settings", "n", str(n))
-                show_histogram(solve_times[-n:])
+                show_histogram(df, n)
 
 
 def main():
@@ -392,4 +390,3 @@ if __name__ == "__main__":
     main()
 
 # todo
-# check if n (graph for last solve) is numeric
