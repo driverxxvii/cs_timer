@@ -156,6 +156,7 @@ def plot_graph(df, n):
     width = 30  # Moving average interval size
 
     plt.figure(1)
+    plt.clf()
     rolling_mean = solve_times.rolling(window=width).mean()
     plt.plot(solve_times, linewidth=1, color="#70ac47")
     plt.plot(rolling_mean, linewidth=2, color="#ed7d32")
@@ -163,8 +164,9 @@ def plot_graph(df, n):
     plt.grid(True)
 
     # only show moving average if n > width
+    indices = solve_times.index.values.tolist()
     if n > width:
-        indices = solve_times.index.values.tolist()
+        # indices = solve_times.index.values.tolist()
         moving_average = rolling_mean.values.tolist()
         # step_size will be zero if num of solves is less than 39, so set to 1 in that case
         step_size = max(int((len(indices) - width+1) / 10), 1)
@@ -173,6 +175,15 @@ def plot_graph(df, n):
 
         plt.annotate(int(moving_average[-1]), xy=(indices[-1], moving_average[-1]))
 
+    best = solve_times.min()
+    worst = solve_times.max()
+    best_x = solve_times.loc[(solve_times == best)].index[0]
+    worst_x = solve_times.loc[(solve_times == worst)].index[0]
+    plt.annotate(f"best - {best}", xy=(best_x, best))
+    plt.annotate(f"worst - {worst}", xy=(worst_x, worst))
+    # print(solve_times.loc[(solve_times==best)])
+
+    plt.tight_layout()
     plt.show(block=False)
 
 
@@ -255,6 +266,7 @@ def show_histogram(df, n):
     mu = solve_times.mean()
     sigma = solve_times.std()
     solve_times.sort_values(inplace=True)
+    plt.clf()
     plt.hist(solve_times, bins=30, density=True, rwidth=0.9)
     plt.plot(solve_times, norm.pdf(solve_times, mu, sigma), color="#ed7d32")
     plt.show(block=False)
@@ -338,7 +350,7 @@ def gui_layout():
 
 
 def event_loop():
-    sg.theme("LightGreen")
+    sg.theme("Light Green")
     # are['Black', 'BlueMono', 'BluePurple', 'BrightColors', 'BrownBlue', 'Dark'
     window = gui_layout()
     window.read(10)
@@ -380,6 +392,8 @@ def event_loop():
                 n = int(values["graph_n_points"])
                 write_config_info("settings", "n", str(n))
                 show_histogram(df, n)
+
+    window.close()
 
 
 def main():
