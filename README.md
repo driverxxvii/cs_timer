@@ -1,5 +1,6 @@
-# cs_timer
+# CS Timer
 A program that uses the exported times from cstimer.net to display some stats and graphs
+GUI made using PySimpleGui
 
 ## GUI
 ![image](https://i.imgur.com/TvMciF7.png)
